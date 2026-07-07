@@ -10,8 +10,10 @@ your score climbs.
 
 - **Tap / click** the left or right half of the screen to mine on that side
 - Or use the **← →** arrow keys (or **A** / **D**)
-- Dodge the purple crystals — switching into one, or letting one drop onto you, ends the run
+- Dodge the crystals — purple ones sit still, red ones climb up and down, blue ones switch sides
 - Every hit refills a little of the timer bar; your best score is saved locally
+- Score milestones unlock cosmetic miner skins (pick yours on the title screen)
+- There's a public leaderboard — enter a name after your first run and hit RANKINGS to see the top miners
 
 ## Running locally
 

@@ -25,6 +25,29 @@
     image-rendering: auto;
     box-shadow: 0 0 60px rgba(0,0,0,.6);
   }
+  .rr-panel { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: min(320px, 86vw); background: #1b1e28; border: 2px solid #f7c948;
+    border-radius: 14px; padding: 16px 18px; color: #fff;
+    font: bold 16px Arial, sans-serif; z-index: 10;
+    box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+  .rr-head { font-size: 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .rr-x { background: none; border: none; color: #9aa2ab; font-size: 20px; cursor: pointer; padding: 2px 6px; }
+  .rr-x:focus, .rr-btn:focus, #rrNameIn:focus { outline: 2px solid #74c0fc; }
+  .rr-sub { font-weight: normal; color: #c4c9d4; font-size: 13px; margin-bottom: 10px; }
+  .rr-list { max-height: 300px; overflow-y: auto; font-variant-numeric: tabular-nums; font-size: 15px; font-weight: normal; }
+  .rr-entry { display: flex; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #262b36; }
+  .rr-entry.me { color: #f7c948; font-weight: bold; }
+  .rr-rank { color: #9aa2ab; min-width: 30px; }
+  .rr-entry.me .rr-rank { color: #f7c948; }
+  .rr-nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .rr-gap { text-align: center; color: #9aa2ab; padding: 2px 0; }
+  .rr-btnrow { display: flex; gap: 10px; margin-top: 12px; }
+  .rr-btn { flex: 1; background: #f7c948; border: none; border-radius: 8px; padding: 10px 0;
+    font: bold 16px Arial, sans-serif; color: #3a2c00; cursor: pointer; }
+  .rr-ghost { background: #2a2f3d; color: #c4c9d4; }
+  #rrNameIn { width: 100%; box-sizing: border-box; background: #12141c; border: 1px solid #3a4150;
+    border-radius: 8px; color: #fff; font: bold 18px Arial, sans-serif; padding: 10px;
+    text-transform: uppercase; outline: none; }
 </style>
 </head>
 <body>
@@ -44,21 +67,49 @@ const VISIBLE_SEGS = 10;
 const PLAYER_X_LEFT = 112;
 const PLAYER_X_RIGHT = W - 112;
 const BEST_KEY = 'rockrush_best';
+const SKIN_KEY = 'rockrush_skin';
+const GAME_URL = 'https://andrewlocke2001-debug.github.io/rock-rush/';
+const LB_KEY = 'rockrush-lb-a21672e937b720f1';      // public leaderboard store (textdb.online)
+const LB_READ = 'https://textdb.online/' + LB_KEY;
+const LB_WRITE = 'https://textdb.online/update';
+const NAME_KEY = 'rockrush_name';
+
+// crystal palettes: [upper, lower, main], outline
+const CRYSTAL_STYLES = {
+  p: { fills: ['#c084fc', '#a855f7', '#d8b4fe'], line: '#4a2a6e' }, // static
+  r: { fills: ['#f87171', '#ef4444', '#fca5a5'], line: '#7f1d1d' }, // slides up/down
+  b: { fills: ['#60a5fa', '#3b82f6', '#93c5fd'], line: '#1e3a8a' }  // switches sides
+};
+
+// cosmetic miner skins, unlocked by best score
+const SKINS = [
+  { name: 'RUSTY',      unlock: 0,   shirt: '#e8792e', pants: '#3b4a8c', boots: '#5b4025', hat: '#f7c948', skinT: '#f2c092', beard: '#7a5230', pick: '#9aa2ab', handle: '#8a5a2b' },
+  { name: 'PROSPECTOR', unlock: 15,  shirt: '#b08968', pants: '#6b4f2e', boots: '#3d2b1f', hat: '#8a5a2b', skinT: '#eab892', beard: '#d9d9d9', pick: '#9aa2ab', handle: '#5b4025' },
+  { name: 'EMERALD',    unlock: 35,  shirt: '#34d399', pants: '#065f46', boots: '#3d2b1f', hat: '#10b981', skinT: '#f2c092', beard: '#3f6212', pick: '#a7f3d0', handle: '#065f46' },
+  { name: 'FROST',      unlock: 60,  shirt: '#93c5fd', pants: '#1e3a8a', boots: '#334155', hat: '#e0f2fe', skinT: '#e8eef5', beard: '#ffffff', pick: '#bfdbfe', handle: '#334155' },
+  { name: 'GOLDEN',     unlock: 90,  shirt: '#fbbf24', pants: '#92400e', boots: '#78350f', hat: '#fde68a', skinT: '#f2c092', beard: '#b45309', pick: '#fde047', handle: '#78350f' },
+  { name: 'SHADOW',     unlock: 140, shirt: '#1f2430', pants: '#0b0e14', boots: '#05070a', hat: '#2d3748', skinT: '#4a5568', beard: '#111827', pick: '#6b7280', handle: '#111827' }
+];
+const SKIN_LOCKED = { shirt: '#262b36', pants: '#1c2029', boots: '#14171e', hat: '#2e3340', skinT: '#343a47', beard: '#20242e', pick: '#3a4150', handle: '#262b36' };
+
+const BTN_SHARE = { x: W / 2 - 165, y: 430, w: 155, h: 46 };
+const BTN_BOARD = { x: W / 2 + 10, y: 430, w: 155, h: 46 };
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
-// ---------- state ----------
-let state = 'title';       // 'title' | 'play' | 'over'
-let segments = [];         // bottom-first; {hazard: -1|0|1, id}
-let segId = 0;
-let playerSide = -1;       // -1 left, +1 right
-let score = 0;
 // localStorage can be unavailable in some hosted contexts
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 };
+
+// ---------- state ----------
+let state = 'title';       // 'title' | 'play' | 'over'
+let segments = [];         // bottom-first; {hazard: null | {side,type,spd,ph}, id}
+let segId = 0;
+let playerSide = -1;       // -1 left, +1 right
+let score = 0;
 let best = Number(store.get(BEST_KEY) || 0);
 let timeLeft = 1;          // 0..1
 let dropOffset = 0;        // pillar falling animation
@@ -66,12 +117,23 @@ let swingT = 999;          // ms since last swing
 let deathT = 0;            // ms since death (animation only)
 let deathAt = 0;           // wall-clock time of death, for the restart lockout
 let deathCause = '';       // 'spike' | 'time'
+let justUnlocked = '';     // skin name unlocked by the last run
+let shareMsg = '';         // feedback after pressing share
+let shareMsgT = 0;
+let playerName = String(store.get(NAME_KEY) || '').slice(0, 12);
+let lbMsg = '';            // e.g. "WORLD RANK #3" on the game-over screen
+let askedNameThisSession = false;
+let pendingScore = 0;      // score waiting on the name prompt
 let shake = 0;
 let chunks = [];           // flying chopped pieces
 let particles = [];
 let popups = [];
 let lastTime = performance.now();
-let elapsed = 0;           // total ms, for clouds etc.
+let elapsed = 0;           // total ms, for clouds + crystal motion
+
+let skinEq = Math.min(SKINS.length - 1, Math.max(0, Number(store.get(SKIN_KEY) || 0)));
+if (best < SKINS[skinEq].unlock) skinEq = 0;
+let skinSel = skinEq;      // skin being browsed on the title screen
 
 // ---------- audio (tiny synth, no assets) ----------
 let actx = null;
@@ -107,6 +169,20 @@ function sfxDeath() {
   o.connect(g).connect(a.destination);
   o.start(t); o.stop(t + 0.55);
 }
+function sfxUnlock() {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime;
+  [523, 659, 784].forEach((f, i) => {
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f, t + i * 0.09);
+    g.gain.setValueAtTime(0.001, t + i * 0.09);
+    g.gain.linearRampToValueAtTime(0.2, t + i * 0.09 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.09 + 0.25);
+    o.connect(g).connect(a.destination);
+    o.start(t + i * 0.09); o.stop(t + i * 0.09 + 0.3);
+  });
+}
 
 // ---------- rng helpers (deterministic per segment for stable cracks) ----------
 function segRand(id, n) {
@@ -114,17 +190,54 @@ function segRand(id, n) {
   return x - Math.floor(x);
 }
 
-// ---------- game setup ----------
+// ---------- hazards ----------
+// p = static purple; r = red, slides up/down one segment; b = blue, switches sides
+function mkHazard(side, allowBlue) {
+  let type = 'p';
+  if (allowBlue && score >= 25 && Math.random() < 0.18) type = 'b';
+  else if (score >= 12 && Math.random() < 0.3) type = 'r';
+  return {
+    side, type,
+    spd: type === 'r' ? 0.0035 + Math.random() * 0.001 : 0.003 + Math.random() * 0.0012,
+    ph: Math.random() * Math.PI * 2
+  };
+}
+
+// red: 0 = at its home row, 1 = fully risen into the row above
+function redOsc(h) { return (Math.sin(elapsed * h.spd + h.ph) + 1) / 2; }
+// blue: >= 0 means on its base side; magnitude is how far it's extended
+function blueOsc(h) { return Math.cos(elapsed * h.spd + h.ph); }
+
+function hazardRow(h, home) {
+  return h.type === 'r' ? home + (redOsc(h) >= 0.5 ? 1 : 0) : home;
+}
+function hazardSide(h) {
+  return h.type === 'b' ? (blueOsc(h) >= 0 ? h.side : -h.side) : h.side;
+}
+
+// tapping `side` right now walks you into a crystal at head height
+function runIntoDeadly(side) {
+  const h = segments[0].hazard;
+  return !!h && hazardRow(h, 0) === 0 && hazardSide(h) === side;
+}
+// after the pillar drops, the next segment's crystal lands on you
+function fallOnDeadly(side) {
+  const h = segments[1] && segments[1].hazard;
+  return !!h && hazardRow(h, 1) === 1 && hazardSide(h) === side;
+}
+
 function newSegment(prevHazard) {
-  let hazard = 0;
+  let hazard = null;
   const p = Math.min(0.62, 0.45 + score * 0.002);
   if (Math.random() < p) {
-    if (prevHazard !== 0) {
-      // a crystal directly above one on the opposite side is an unavoidable
-      // death, so adjacent hazards may only continue on the same side
-      hazard = Math.random() < 0.6 ? prevHazard : 0;
+    if (prevHazard && prevHazard.type === 'b') {
+      hazard = null; // side-switchers get empty neighbors so a dodge always exists
+    } else if (prevHazard) {
+      // adjacent hazards may only continue on the same side (opposite-side
+      // adjacency is an unavoidable death), and never stack a blue on a chain
+      hazard = Math.random() < 0.6 ? mkHazard(prevHazard.side, false) : null;
     } else {
-      hazard = Math.random() < 0.5 ? -1 : 1;
+      hazard = mkHazard(Math.random() < 0.5 ? -1 : 1, true);
     }
   }
   return { hazard, id: segId++ };
@@ -135,7 +248,7 @@ function reset() {
   segId = 0;
   for (let i = 0; i < VISIBLE_SEGS; i++) {
     // keep the first few segments clear so the start is fair
-    segments.push(i < 4 ? { hazard: 0, id: segId++ } : newSegment(segments[i - 1].hazard));
+    segments.push(i < 4 ? { hazard: null, id: segId++ } : newSegment(segments[i - 1].hazard));
   }
   playerSide = -1;
   score = 0;
@@ -143,6 +256,8 @@ function reset() {
   dropOffset = 0;
   swingT = 999;
   deathT = 0;
+  justUnlocked = '';
+  shareMsg = '';
   shake = 0;
   chunks = [];
   particles = [];
@@ -155,11 +270,19 @@ function die(cause) {
   deathT = 0;
   deathAt = performance.now();
   shake = 14;
+  const prevBest = best;
   if (score > best) {
     best = score;
     store.set(BEST_KEY, String(best));
   }
+  const fresh = SKINS.find(s => s.unlock > prevBest && s.unlock <= best && s.unlock > 0);
+  if (fresh) { justUnlocked = fresh.name; sfxUnlock(); }
   sfxDeath();
+  lbMsg = '';
+  if (score > 0) {
+    if (playerName) submitScore(score);
+    else if (!askedNameThisSession) { askedNameThisSession = true; openNamePrompt(score); }
+  }
 }
 
 function spawnChunk(hazard) {
@@ -192,7 +315,7 @@ function spawnParticles(side) {
 // ---------- input / core mechanic ----------
 function tap(side) {
   audio();
-  if (state === 'title') { reset(); state = 'play'; }
+  if (state === 'title') { skinSel = skinEq; reset(); state = 'play'; }
   else if (state === 'over') {
     if (performance.now() - deathAt < 700) return; // brief lockout so you don't skip the score screen
     reset(); state = 'play';
@@ -202,8 +325,8 @@ function tap(side) {
   playerSide = side;
   swingT = 0;
 
-  // ran straight into a crystal at head height
-  if (segments[0].hazard === side) { die('spike'); return; }
+  if (runIntoDeadly(side)) { die('spike'); return; }
+  const crushed = fallOnDeadly(side);
 
   // mine the bottom segment
   const removed = segments.shift();
@@ -217,19 +340,159 @@ function tap(side) {
   popups.push({ x: W / 2 + side * 110, y: GROUND_Y - SEG_H - 30, life: 1 });
   sfxClink();
 
-  // the pillar drops — a crystal lands on you
-  if (segments[0].hazard === playerSide) { die('spike'); return; }
+  if (crushed) { die('spike'); return; }
 }
+
+function cycleSkin(dir) {
+  skinSel = (skinSel + dir + SKINS.length) % SKINS.length;
+  if (best >= SKINS[skinSel].unlock) {
+    skinEq = skinSel;
+    store.set(SKIN_KEY, String(skinEq));
+  }
+}
+
+function shareScore() {
+  const text = '⛏ I scored ' + score + ' in Rock Rush! Can you beat it? ' + GAME_URL;
+  shareMsgT = performance.now();
+  if (navigator.share) {
+    navigator.share({ text }).then(() => { shareMsg = 'SHARED!'; }).catch(() => {});
+    shareMsg = '';
+  } else if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => { shareMsg = 'COPIED TO CLIPBOARD!'; })
+      .catch(() => { shareMsg = 'COPY FAILED'; });
+    shareMsg = 'COPIED TO CLIPBOARD!';
+  } else {
+    shareMsg = 'COPY FAILED';
+  }
+}
+
+// ---------- public leaderboard (shared JSON on textdb.online) ----------
+function sanitizeName(raw) {
+  return String(raw || '').replace(/[^\w \-!?.]/g, '').trim().slice(0, 12).toUpperCase();
+}
+async function lbLoad() {
+  const r = await fetch(LB_READ + '?t=' + Date.now(), { cache: 'no-store' });
+  if (!r.ok) throw new Error('lb read ' + r.status);
+  let j = null;
+  try { j = JSON.parse(await r.text()); } catch (err) {}
+  const list = j && Array.isArray(j.scores) ? j.scores : [];
+  return list
+    .filter(e => e && typeof e.n === 'string' && typeof e.s === 'number' && e.s > 0 && e.s < 1e6)
+    .map(e => ({ n: sanitizeName(e.n) || '???', s: Math.floor(e.s), t: e.t || 0 }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 50);
+}
+async function lbSubmit(name, sc) {
+  let list = [];
+  try { list = await lbLoad(); } catch (err) {} // still record the score if the read fails
+  const i = list.findIndex(e => e.n === name);
+  if (i >= 0) { if (sc > list[i].s) list[i] = { n: name, s: sc, t: Date.now() }; }
+  else list.push({ n: name, s: sc, t: Date.now() });
+  list.sort((a, b) => b.s - a.s);
+  list = list.slice(0, 50);
+  const body = new URLSearchParams({ key: LB_KEY, value: JSON.stringify({ v: 1, scores: list }) });
+  const r = await fetch(LB_WRITE, { method: 'POST', body });
+  if (!r.ok) throw new Error('lb write ' + r.status);
+  return list.findIndex(e => e.n === name) + 1;
+}
+function submitScore(sc) {
+  lbSubmit(playerName, sc)
+    .then(rank => { if (rank > 0) lbMsg = 'WORLD RANK #' + rank; })
+    .catch(() => { lbMsg = ''; });
+}
+
+// ---------- DOM overlays (name prompt + rankings panel) ----------
+const uiRoot = document.createElement('div');
+uiRoot.innerHTML =
+  '<div id="rrBoard" class="rr-panel" hidden>' +
+    '<div class="rr-head">🏆 TOP MINERS <button class="rr-x" id="rrBoardX">✕</button></div>' +
+    '<div id="rrList" class="rr-list">Loading…</div>' +
+  '</div>' +
+  '<div id="rrName" class="rr-panel" hidden>' +
+    '<div class="rr-head">JOIN THE LEADERBOARD</div>' +
+    '<div class="rr-sub">Pick a public miner name (max 12 chars)</div>' +
+    '<input id="rrNameIn" maxlength="12" autocomplete="off" spellcheck="false" placeholder="YOUR NAME">' +
+    '<div class="rr-btnrow"><button id="rrNameOk" class="rr-btn">SAVE</button><button id="rrNameSkip" class="rr-btn rr-ghost">SKIP</button></div>' +
+  '</div>';
+document.body.appendChild(uiRoot);
+const boardEl = uiRoot.querySelector('#rrBoard');
+const listEl = uiRoot.querySelector('#rrList');
+const nameEl = uiRoot.querySelector('#rrName');
+const nameIn = uiRoot.querySelector('#rrNameIn');
+
+function overlayOpen() { return !boardEl.hidden || !nameEl.hidden; }
+function closeOverlays() { boardEl.hidden = true; nameEl.hidden = true; }
+
+function renderBoard(list) {
+  if (!list.length) { listEl.textContent = 'No scores yet — be the first!'; return; }
+  listEl.innerHTML = '';
+  const row = (rank, e) => {
+    const d = document.createElement('div');
+    d.className = 'rr-entry' + (playerName && e.n === playerName ? ' me' : '');
+    d.innerHTML = '<span class="rr-rank">' + rank + '.</span><span class="rr-nm"></span><span class="rr-sc">' + e.s + '</span>';
+    d.querySelector('.rr-nm').textContent = e.n; // names are user data — never innerHTML
+    listEl.appendChild(d);
+  };
+  list.slice(0, 10).forEach((e, i) => row(i + 1, e));
+  if (playerName) {
+    const mine = list.findIndex(e => e.n === playerName);
+    if (mine >= 10) {
+      const gap = document.createElement('div');
+      gap.className = 'rr-gap'; gap.textContent = '⋯';
+      listEl.appendChild(gap);
+      row(mine + 1, list[mine]);
+    }
+  }
+}
+function openBoard() {
+  nameEl.hidden = true;
+  boardEl.hidden = false;
+  listEl.textContent = 'Loading…';
+  lbLoad().then(renderBoard).catch(() => { listEl.textContent = "Couldn't load — check back later."; });
+}
+function openNamePrompt(sc) {
+  pendingScore = sc;
+  boardEl.hidden = true;
+  nameEl.hidden = false;
+  nameIn.value = playerName;
+  setTimeout(() => nameIn.focus(), 50);
+}
+uiRoot.querySelector('#rrBoardX').addEventListener('click', closeOverlays);
+uiRoot.querySelector('#rrNameOk').addEventListener('click', () => {
+  const nm = sanitizeName(nameIn.value);
+  if (!nm) { nameIn.focus(); return; }
+  playerName = nm;
+  store.set(NAME_KEY, playerName);
+  nameEl.hidden = true;
+  if (pendingScore > 0) submitScore(pendingScore);
+});
+uiRoot.querySelector('#rrNameSkip').addEventListener('click', () => { nameEl.hidden = true; });
+nameIn.addEventListener('keydown', (e) => {
+  e.stopPropagation(); // typing a name must not swing the pickaxe
+  if (e.key === 'Enter') uiRoot.querySelector('#rrNameOk').click();
+});
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  if (overlayOpen()) { if (e.key === 'Escape') closeOverlays(); return; }
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { e.preventDefault(); tap(-1); }
   else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); tap(1); }
+  else if (state === 'title' && (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W')) { e.preventDefault(); cycleSkin(-1); }
+  else if (state === 'title' && (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S')) { e.preventDefault(); cycleSkin(1); }
 });
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
+  if (overlayOpen()) { closeOverlays(); return; }
   const rect = canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) / rect.width * W;
+  const y = (e.clientY - rect.top) / rect.height * H;
+  const inBtn = (b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  if (state === 'over' && performance.now() - deathAt > 350) {
+    if (inBtn(BTN_SHARE)) { shareScore(); return; }
+    if (inBtn(BTN_BOARD)) { openBoard(); return; }
+  }
+  if (state === 'title' && y > 492 && y < 530) { openBoard(); return; }
+  if (state === 'title' && y > 540) { cycleSkin(x < W / 2 ? -1 : 1); return; }
   tap(x < W / 2 ? -1 : 1);
 });
 
@@ -314,14 +577,16 @@ function drawGround() {
   }
 }
 
-function drawCrystals(x, y, dir, scale = 1) {
-  // cluster of crystals sticking out horizontally from (x, y) toward dir
+function drawCrystals(x, y, dir, type, ext = 1) {
+  // cluster of crystals sticking out horizontally from (x, y) toward dir;
+  // ext squashes the cluster as blue crystals retract through the rock
+  const st = CRYSTAL_STYLES[type] || CRYSTAL_STYLES.p;
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(dir * scale, scale);
+  ctx.scale(dir * Math.max(0.18, ext), 1);
   const draw = (len, w, oy, fill) => {
     ctx.fillStyle = fill;
-    ctx.strokeStyle = '#4a2a6e';
+    ctx.strokeStyle = st.line;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(0, oy - w);
@@ -338,10 +603,23 @@ function drawCrystals(x, y, dir, scale = 1) {
     ctx.closePath();
     ctx.fill();
   };
-  draw(SPIKE_LEN * 0.6, 12, -16, '#c084fc');
-  draw(SPIKE_LEN * 0.65, 12, 16, '#a855f7');
-  draw(SPIKE_LEN, 15, 0, '#d8b4fe');
+  draw(SPIKE_LEN * 0.6, 12, -16, st.fills[0]);
+  draw(SPIKE_LEN * 0.65, 12, 16, st.fills[1]);
+  draw(SPIKE_LEN, 15, 0, st.fills[2]);
   ctx.restore();
+}
+
+function drawHazard(h, yy, frozen) {
+  // yy = top of the hazard's home segment; frozen = draw without motion (chunks)
+  let cy = yy + SEG_H / 2;
+  let side = h.side;
+  let ext = 1;
+  if (!frozen) {
+    if (h.type === 'r') cy -= redOsc(h) * SEG_H;
+    if (h.type === 'b') { const o = blueOsc(h); side = o >= 0 ? h.side : -h.side; ext = Math.abs(o); }
+  }
+  const x = side === -1 ? ROCK_X + 2 : ROCK_X + ROCK_W - 2;
+  drawCrystals(x, cy, side, h.type, ext);
 }
 
 function drawSegmentBody(id, x, y, w, h) {
@@ -390,13 +668,16 @@ function drawPillar() {
   ctx.ellipse(W / 2, GROUND_Y + 8, ROCK_W / 2 + 24, 22, 0, 0, Math.PI * 2);
   ctx.fill(); ctx.stroke();
 
+  // rock bodies first, then crystals on top so risers overlap cleanly
   for (let i = 0; i < segments.length; i++) {
-    const y = GROUND_Y - SEG_H * (i + 1) - dropOffset * Math.min(1, i * 0.15 + 0.6);
     const yy = GROUND_Y - SEG_H * (i + 1) + dropOffset;
     if (yy > H || yy + SEG_H < -SEG_H) continue;
     drawSegmentBody(segments[i].id, ROCK_X, yy, ROCK_W, SEG_H);
-    if (segments[i].hazard === -1) drawCrystals(ROCK_X + 2, yy + SEG_H / 2, -1);
-    if (segments[i].hazard === 1) drawCrystals(ROCK_X + ROCK_W - 2, yy + SEG_H / 2, 1);
+  }
+  for (let i = 0; i < segments.length; i++) {
+    const yy = GROUND_Y - SEG_H * (i + 1) + dropOffset;
+    if (yy > H || yy + SEG_H < -SEG_H) continue;
+    if (segments[i].hazard) drawHazard(segments[i].hazard, yy, false);
   }
 }
 
@@ -406,24 +687,26 @@ function drawChunks() {
     ctx.translate(c.x, c.y);
     ctx.rotate(c.rot);
     drawSegmentBody(c.id, -ROCK_W / 2, -SEG_H / 2, ROCK_W, SEG_H);
-    if (c.hazard === -1) drawCrystals(-ROCK_W / 2 + 2, 0, -1);
-    if (c.hazard === 1) drawCrystals(ROCK_W / 2 - 2, 0, 1);
+    if (c.hazard) {
+      const x = c.hazard.side === -1 ? -ROCK_W / 2 + 2 : ROCK_W / 2 - 2;
+      drawCrystals(x, 0, c.hazard.side, c.hazard.type, 1);
+    }
     ctx.restore();
   }
 }
 
-function drawPickaxe(swing) {
+function drawPickaxe(swing, sk) {
   // held pointing up-back at rest, swings toward the rock
   ctx.save();
   ctx.translate(6, -46); // shoulder pivot
   ctx.rotate(-1.15 + swing * 1.55);
   // handle
-  ctx.strokeStyle = '#8a5a2b';
+  ctx.strokeStyle = sk.handle;
   ctx.lineWidth = 7;
   ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(52, -6); ctx.stroke();
   // pick head
-  ctx.strokeStyle = '#9aa2ab';
+  ctx.strokeStyle = sk.pick;
   ctx.lineWidth = 9;
   ctx.beginPath();
   ctx.moveTo(44, -26);
@@ -432,7 +715,7 @@ function drawPickaxe(swing) {
   ctx.restore();
 }
 
-function drawMiner(x, dead) {
+function drawMiner(x, dead, sk) {
   ctx.save();
   ctx.translate(x, GROUND_Y);
   ctx.scale(playerSide === -1 ? 1 : -1, 1); // always face the pillar
@@ -445,38 +728,38 @@ function drawMiner(x, dead) {
   const sp = swingT < 170 ? Math.sin((swingT / 170) * Math.PI) : 0;
 
   // legs
-  ctx.fillStyle = '#3b4a8c';
+  ctx.fillStyle = sk.pants;
   ctx.fillRect(-14, -26, 11, 26);
   ctx.fillRect(3, -26, 11, 26);
-  ctx.fillStyle = '#5b4025';
+  ctx.fillStyle = sk.boots;
   ctx.fillRect(-16, -7, 15, 7);
   ctx.fillRect(1, -7, 15, 7);
   // torso
-  ctx.fillStyle = '#e8792e';
+  ctx.fillStyle = sk.shirt;
   ctx.fillRect(-15, -56, 30, 31);
-  ctx.fillStyle = '#3b4a8c';
+  ctx.fillStyle = sk.pants;
   ctx.fillRect(-15, -44, 30, 19);
   ctx.fillRect(-13, -56, 7, 14);
   ctx.fillRect(6, -56, 7, 14);
   // head
-  ctx.fillStyle = '#f2c092';
+  ctx.fillStyle = sk.skinT;
   ctx.beginPath(); ctx.arc(2, -66, 12, 0, Math.PI * 2); ctx.fill();
   // beard
-  ctx.fillStyle = '#7a5230';
+  ctx.fillStyle = sk.beard;
   ctx.beginPath(); ctx.arc(4, -61, 9, -0.4, Math.PI - 0.6); ctx.fill();
   // eye
   ctx.fillStyle = '#222';
   ctx.fillRect(7, -70, 3, 3);
   // hard hat + lamp
-  ctx.fillStyle = '#f7c948';
+  ctx.fillStyle = sk.hat;
   ctx.beginPath(); ctx.arc(2, -70, 13, Math.PI, 0); ctx.fill();
   ctx.fillRect(-13, -71, 30, 4);
   ctx.fillStyle = '#fffbe6';
   ctx.fillRect(9, -80, 6, 6);
 
   // pickaxe + arm
-  drawPickaxe(sp);
-  ctx.strokeStyle = '#e8792e';
+  drawPickaxe(sp, sk);
+  ctx.strokeStyle = sk.shirt;
   ctx.lineWidth = 8;
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -484,7 +767,7 @@ function drawMiner(x, dead) {
   const ax = 16 + sp * 10, ay = -52 + sp * 14;
   ctx.lineTo(ax, ay);
   ctx.stroke();
-  ctx.fillStyle = '#f2c092';
+  ctx.fillStyle = sk.skinT;
   ctx.beginPath(); ctx.arc(ax, ay, 5, 0, Math.PI * 2); ctx.fill();
 
   ctx.restore();
@@ -545,40 +828,53 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
+function outlined(text, x, y, fill, lw) {
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = lw;
+  ctx.strokeText(text, x, y);
+  ctx.fillText(text, x, y);
+}
+
 function drawTitle() {
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#fff';
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 10;
   ctx.font = 'bold 64px Arial, sans-serif';
-  ctx.strokeText('ROCK RUSH', W / 2, 200);
-  ctx.fillText('ROCK RUSH', W / 2, 200);
+  outlined('ROCK RUSH', W / 2, 180, '#fff', 10);
 
-  ctx.font = 'bold 22px Arial, sans-serif';
-  ctx.lineWidth = 6;
+  ctx.font = 'bold 21px Arial, sans-serif';
   const lines = [
     'Tap LEFT / RIGHT sides of the screen',
     'or use  ←  →  keys to mine.',
-    'Dodge the crystals. Beat the clock!'
+    'Purple crystals sit still. Red ones climb.',
+    'Blue ones switch sides. Dodge them all!'
   ];
-  lines.forEach((l, i) => {
-    ctx.strokeText(l, W / 2, 268 + i * 34);
-    ctx.fillText(l, W / 2, 268 + i * 34);
-  });
+  lines.forEach((l, i) => outlined(l, W / 2, 244 + i * 32, '#fff', 6));
 
   if (best > 0) {
     ctx.font = 'bold 26px Arial, sans-serif';
-    ctx.strokeText('BEST: ' + best, W / 2, 404);
-    ctx.fillText('BEST: ' + best, W / 2, 404);
+    outlined('BEST: ' + best, W / 2, 408, '#fff', 6);
   }
 
   if (Math.floor(elapsed / 500) % 2 === 0) {
     ctx.font = 'bold 30px Arial, sans-serif';
-    ctx.strokeText('TAP TO START', W / 2, 480);
-    ctx.fillText('TAP TO START', W / 2, 480);
+    outlined('TAP TO START', W / 2, 470, '#fff', 6);
   }
+
+  ctx.font = 'bold 24px Arial, sans-serif';
+  outlined('🏆 LEADERBOARD', W / 2, 514, '#ffd43b', 6);
+
+  // skin selector
+  const s = SKINS[skinSel];
+  const locked = best < s.unlock;
+  ctx.font = 'bold 28px Arial, sans-serif';
+  outlined('◀', W / 2 - 130, 584, '#fff', 6);
+  outlined('▶', W / 2 + 130, 584, '#fff', 6);
+  outlined(s.name, W / 2, 584, locked ? '#9aa2ab' : '#f7c948', 6);
+  ctx.font = 'bold 17px Arial, sans-serif';
+  outlined(locked ? '🔒 UNLOCKS AT BEST ' + s.unlock : 'YOUR MINER  (▲▼ or tap below to change)',
+    W / 2, 612, locked ? '#ff8787' : '#d0d4da', 5);
 }
 
 function drawGameOver() {
@@ -586,30 +882,48 @@ function drawGameOver() {
   ctx.fillRect(0, 0, W, H);
   if (deathT < 350) return;
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#ff5a5a';
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = 10;
   ctx.font = 'bold 58px Arial, sans-serif';
-  ctx.strokeText('GAME OVER', W / 2, 230);
-  ctx.fillText('GAME OVER', W / 2, 230);
+  outlined('GAME OVER', W / 2, 220, '#ff5a5a', 10);
 
-  ctx.fillStyle = '#fff';
-  ctx.lineWidth = 6;
   ctx.font = 'bold 26px Arial, sans-serif';
   const cause = deathCause === 'time' ? "Time's up!" : 'Crushed by crystals!';
-  ctx.strokeText(cause, W / 2, 280);
-  ctx.fillText(cause, W / 2, 280);
+  outlined(cause, W / 2, 268, '#fff', 6);
 
   ctx.font = 'bold 34px Arial, sans-serif';
-  ctx.strokeText('SCORE: ' + score, W / 2, 340);
-  ctx.fillText('SCORE: ' + score, W / 2, 340);
-  ctx.strokeText('BEST: ' + best, W / 2, 384);
-  ctx.fillText('BEST: ' + best, W / 2, 384);
+  outlined('SCORE: ' + score, W / 2, 312, '#fff', 6);
+  outlined('BEST: ' + best, W / 2, 350, '#fff', 6);
+
+  if (lbMsg) {
+    ctx.font = 'bold 24px Arial, sans-serif';
+    outlined(lbMsg, W / 2, 386, '#8ce99a', 6);
+  }
+  if (justUnlocked) {
+    ctx.font = 'bold 22px Arial, sans-serif';
+    outlined('★ NEW MINER UNLOCKED: ' + justUnlocked + ' ★', W / 2, 414, '#f7c948', 6);
+  }
+
+  // share + rankings buttons
+  const btn = (b, fill, text, textFill) => {
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 3;
+    roundRect(b.x, b.y, b.w, b.h, 12);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = textFill;
+    ctx.font = 'bold 22px Arial, sans-serif';
+    ctx.fillText(text, b.x + b.w / 2, b.y + 31);
+  };
+  btn(BTN_SHARE, '#f7c948', 'SHARE', '#3a2c00');
+  btn(BTN_BOARD, '#74c0fc', 'RANKINGS', '#0b2a4a');
+
+  if (shareMsg && performance.now() - shareMsgT < 2000) {
+    ctx.font = 'bold 18px Arial, sans-serif';
+    outlined(shareMsg, W / 2, 502, '#8ce99a', 5);
+  }
 
   if (deathT > 700 && Math.floor(elapsed / 500) % 2 === 0) {
     ctx.font = 'bold 28px Arial, sans-serif';
-    ctx.strokeText('TAP TO TRY AGAIN', W / 2, 460);
-    ctx.fillText('TAP TO TRY AGAIN', W / 2, 460);
+    outlined('TAP TO TRY AGAIN', W / 2, 545, '#fff', 6);
   }
 }
 
@@ -622,7 +936,10 @@ function draw() {
   drawGround();
   drawPillar();
   drawChunks();
-  drawMiner(playerSide === -1 ? PLAYER_X_LEFT : PLAYER_X_RIGHT, state === 'over' && deathCause === 'spike');
+  const sk = state === 'title'
+    ? (best >= SKINS[skinSel].unlock ? SKINS[skinSel] : SKIN_LOCKED)
+    : SKINS[skinEq];
+  drawMiner(playerSide === -1 ? PLAYER_X_LEFT : PLAYER_X_RIGHT, state === 'over' && deathCause === 'spike', sk);
   drawParticles();
   drawPopups();
   ctx.restore();
@@ -652,11 +969,27 @@ window.addEventListener('resize', fit);
 // debug/testing hook
 window.__rr = {
   tap,
+  cycleSkin,
+  shareScore,
+  runIntoDeadly,
+  fallOnDeadly,
   get state() { return state; },
   get score() { return score; },
+  get best() { return best; },
   get timeLeft() { return timeLeft; },
-  get segments() { return segments.map(s => s.hazard); },
+  get segments() { return segments.map(s => s.hazard ? { side: s.hazard.side, type: s.hazard.type } : 0); },
   get playerSide() { return playerSide; },
+  get skinEq() { return skinEq; },
+  get skinSel() { return skinSel; },
+  get justUnlocked() { return justUnlocked; },
+  get shareMsg() { return shareMsg; },
+  lbLoad,
+  lbSubmit,
+  openBoard,
+  openNamePrompt,
+  get lbMsg() { return lbMsg; },
+  get playerName() { return playerName; },
+  setName(v) { playerName = sanitizeName(v); store.set(NAME_KEY, playerName); },
   get elapsed() { return elapsed; },
   tick: (ms) => update(ms),
   draw
